@@ -1,0 +1,102 @@
+package main
+
+import (
+ "fmt"
+ "math"
+ "sync"
+)
+
+type Task func() //новый тип данных в функции таск, которая не возращает знач и не принимает аргументов (зачем она тогда нужна...)
+
+type TaskPool struct { //новая структура таскпул, внутри которой поле таскс. Это поле хранит задачи в пуле
+ tasks []Task
+ mu    sync.Mutex //мутекс, который используется для синхронизации пула задач
+}
+
+type ITaskPool interface {
+ NextTask() Task //извлекает задачу
+ Push(Task) //добавляет задачи
+}
+
+type Executor interface { //создание интерфейса
+ ExecNext()
+}
+
+func (tp *TaskPool) Push(t Task) { \\ Указывает, что метод принадлежит к структуре таскпул. * означает, что метод получает указатель на экземпляр структуры таскпул (в этом случае tp). t- задача, которую добавляем в пул
+ tp.mu.Lock() //блокирует доступ для других горутин, пока не вызовется анлок
+ tp.tasks = append(tp.tasks, t) //добавляет задачу
+ tp.mu.Unlock()
+}
+
+func (tp *TaskPool) NextTask() Task {
+ tp.mu.Lock()
+ defer tp.mu.Unlock() //Ключевое слово, которое откладывает выполнение функции tp.mu.Unlock() до завершения выполнения текущей функции.
+
+ if len(tp.tasks) == 0 {
+  return nil
+ }
+
+ task := tp.tasks[0]
+ tp.tasks = tp.tasks[1:]
+ return task
+}
+
+func (tp *TaskPool) ExecNext() {
+ task := tp.NextTask()
+ if task != nil {
+  task()
+ }
+}
+
+var primes []int //срез для хранения найденых чисел
+var primeCount int //кол-во
+var mu sync.Mutex //объявляет мутекс
+
+func isPrime(n int) bool {
+ if n < 2 {
+  return false
+ }
+ for _, p := range primes {
+  if p > int(math.Sqrt(float64(n))) { //Проверяет, больше ли текущее простое число p корня из n. Если да, то цикл прекращает выполнение, так как все последующие простые числа будут больше n, и нам не нужно проверять их.
+   break
+  }
+  if n%p == 0 {
+   return false
+  }
+ }
+ return true
+}
+
+func createPrimeTask(n int) Task {
+ return func() {
+  if isPrime(n) {
+   mu.Lock()
+   primes = append(primes, n)
+   primeCount++
+   mu.Unlock()
+  }
+ }
+}
+
+func GenerateNums(n int) []int {
+ nums := make([]int, n) //создает срез с длинной n
+ for i := 0; i < n; i++ {
+  nums[i] = i + 1
+ }
+ return nums
+} //эта часть кода создает функцию генерейтнамс, которая генерирует срез целых чисел от 1 до n, и возвращает его 
+
+func main() {
+ nums := GenerateNums(10)
+ var taskPool TaskPool
+
+ for _, n := range nums {
+  taskPool.Push(createPrimeTask(n))
+ }
+
+ for len(taskPool.tasks) > 0 {
+  taskPool.ExecNext()
+ }
+
+ fmt.Printf("Общее количество простых чисел: %d\n", primeCount)
+ fmt.Println("Простые числа:", primes)
