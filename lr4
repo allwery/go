@@ -1,0 +1,62 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"math/rand"
+	"runtime"
+	"time"
+)
+
+func generateData(ctx context.Context, size int) ([]byte, error) { //генерирует массивы рандомных байтов
+//ctx контекст который позволяет отменить генерацию данны- 
+	data := make([]byte, 0, size) //создаем массив 0 длинны с емкостью сайз
+	for len(data) < size { //генерация массива
+		select {
+		case <-ctx.Done(): //канал, который закрывается, когда контекст отменяется, а кейс обрабаывает случай, если такое происходит
+			return nil, ctx.Err()
+		default: //случай если контекст не отменен
+			time.Sleep(100 * time.Millisecond)
+			data = append(data, byte(rand.Intn(256))) //генерирует рандомный байт и добавляет его в массив
+		}
+	}
+	return data, nil //если все норм, то возвращаем массив
+}
+
+func getAvailableMemory() int {
+	var m runtime.MemStats //структура, которая содержит различную информацию о среде выполнения го, в том числе статистику о памяти
+	runtime.ReadMemStats(&m) //получаем инфу о памяти. Ф-я которая заполняет инфу о статате памяти
+	return int(m.Sys) //преобразование значения m.Sys (которое является uint64 и показывает память в байтах) в int (целое число), чтобы его можно было вернуть из функции
+}
+
+func main() {
+	availableMemory := getAvailableMemory()
+	availableMemoryMB := availableMemory / (1024 * 1024) //получаем память в мегабайтах
+	fmt.Printf("Доступная память в этой среде: %d MB\n", availableMemoryMB)
+	maxSize := availableMemoryMB * 1024 * 1024
+
+	timeout := 1 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout) //ф-я создает новый котекст с таймаутом
+	defer cancel() //defer - ключевое слово в Go, которое откладывает выполнение функции cancel()
+	 //до завершения текущей функции. 
+//Это означает, что cancel() будет вызвана, когда функция, в которой этот код находится,
+//завершится, независимо от того, как она завершится (нормально или с ошибкой)
+
+	size := 100 * 1024 * 1024 //хранит значение генерируемых байтов
+	if size > maxSize {
+		size = maxSize
+		fmt.Printf("Размер данных ограничен доступной памятью: %d MB\n", size/(1024*1024))
+	}
+
+	data, err := generateData(ctx, size)
+	if err != nil {
+		if err == context.DeadlineExceeded {
+			fmt.Println("Операция отменена: время вышло.")
+		} else {
+			log.Fatalf("Ошибка при генерации данных: %v", err)
+		}
+	} else {
+		fmt.Printf("Данные успешно сгенерированы. Размер данных: %d MB\n", len(data)/(1024*1024))
+	}
+}
